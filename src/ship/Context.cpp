@@ -32,7 +32,10 @@ std::shared_ptr<Context> Context::GetInstance() {
 
 Context::~Context() {
     SPDLOG_TRACE("destruct context");
-    GetWindow()->SaveWindowToConfig();
+    auto window = GetWindow();
+    if (window != nullptr) {
+        window->SaveWindowToConfig();
+    }
 
     // Explicitly destructing everything so that logging is done last.
     mAudio = nullptr;
@@ -42,7 +45,10 @@ Context::~Context() {
     mControlDeck = nullptr;
     mResourceManager = nullptr;
     mConsoleVariables = nullptr;
-    GetConfig()->Save();
+    auto config = GetConfig();
+    if (config != nullptr) {
+        config->Save();
+    }
     mConfig = nullptr;
     spdlog::shutdown();
 }

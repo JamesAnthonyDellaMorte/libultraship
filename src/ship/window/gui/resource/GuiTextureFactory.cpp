@@ -1,6 +1,7 @@
 #include "ship/window/gui/resource/GuiTextureFactory.h"
 #include "ship/window/gui/resource/GuiTexture.h"
 #include "spdlog/spdlog.h"
+#include <stb_image.h>
 
 namespace Ship {
 std::shared_ptr<IResource>

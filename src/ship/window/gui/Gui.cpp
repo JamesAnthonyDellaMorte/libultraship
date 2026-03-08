@@ -96,6 +96,7 @@ void Gui::Init(GuiWindowInitData windowImpl) {
     mImpl = windowImpl;
     ImGuiContext* ctx = ImGui::CreateContext();
     ImGui::SetCurrentContext(ctx);
+    mIsInitialized = true;
     mImGuiIo = &ImGui::GetIO();
     mImGuiIo->ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NoMouseCursorChange;
 
@@ -136,10 +137,9 @@ void Gui::Init(GuiWindowInitData windowImpl) {
         mImGuiIo->ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
     }
 
-    GetGuiWindow("Stats")->Init();
-    GetGuiWindow("Input Editor")->Init();
-    GetGuiWindow("Console")->Init();
-    GetGuiWindow("GfxDebuggerWindow")->Init();
+    for (auto& entry : mGuiWindows) {
+        entry.second->Init();
+    }
     GetGameOverlay()->Init();
 
     Context::GetInstance()->GetResourceManager()->GetResourceLoader()->RegisterResourceFactory(
@@ -843,7 +843,9 @@ void Gui::AddGuiWindow(std::shared_ptr<GuiWindow> guiWindow) {
     }
 
     mGuiWindows[guiWindow->GetName()] = guiWindow;
-    guiWindow->Init();
+    if (mIsInitialized) {
+        guiWindow->Init();
+    }
 }
 
 void Gui::RemoveGuiWindow(std::shared_ptr<GuiWindow> guiWindow) {

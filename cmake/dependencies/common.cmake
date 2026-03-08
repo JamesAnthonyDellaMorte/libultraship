@@ -52,7 +52,29 @@ endif()
 
 #=================== STB ===================
 set(STB_DIR ${CMAKE_BINARY_DIR}/_deps/stb)
-file(DOWNLOAD "https://github.com/nothings/stb/raw/0bc88af4de5fb022db643c2d8e549a0927749354/stb_image.h" "${STB_DIR}/stb_image.h")
+set(STB_HEADER_PATH "${STB_DIR}/stb_image.h")
+set(STB_HEADER_URL "https://github.com/nothings/stb/raw/0bc88af4de5fb022db643c2d8e549a0927749354/stb_image.h")
+set(STB_NEEDS_DOWNLOAD ON)
+
+if(EXISTS "${STB_HEADER_PATH}")
+    file(SIZE "${STB_HEADER_PATH}" STB_HEADER_SIZE)
+    if(STB_HEADER_SIZE GREATER 0)
+        set(STB_NEEDS_DOWNLOAD OFF)
+    endif()
+endif()
+
+if(STB_NEEDS_DOWNLOAD)
+    file(MAKE_DIRECTORY "${STB_DIR}")
+    file(DOWNLOAD "${STB_HEADER_URL}" "${STB_HEADER_PATH}" STATUS STB_DOWNLOAD_STATUS)
+    list(GET STB_DOWNLOAD_STATUS 0 STB_DOWNLOAD_RESULT)
+    list(GET STB_DOWNLOAD_STATUS 1 STB_DOWNLOAD_MESSAGE)
+
+    if(NOT STB_DOWNLOAD_RESULT EQUAL 0)
+        file(REMOVE "${STB_HEADER_PATH}")
+        message(FATAL_ERROR "Failed to download stb_image.h: ${STB_DOWNLOAD_MESSAGE}")
+    endif()
+endif()
+
 file(WRITE "${STB_DIR}/stb_impl.c" "#define STB_IMAGE_IMPLEMENTATION\n#include \"stb_image.h\"")
 
 add_library(stb STATIC)

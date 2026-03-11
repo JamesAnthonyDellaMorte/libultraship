@@ -68,6 +68,42 @@ namespace Fast {
 
 static UcodeHandlers ucode_handler_index = ucode_f3dex2;
 
+static uint64_t HashBytesFNV1a(const uint8_t* data, uint32_t size) {
+    if (data == nullptr || size == 0) {
+        return 0;
+    }
+
+    uint64_t hash = 1469598103934665603ull;
+    for (uint32_t i = 0; i < size; ++i) {
+        hash ^= data[i];
+        hash *= 1099511628211ull;
+    }
+
+    return hash;
+}
+
+static uint64_t HashMutableTextureContents(uint8_t fmt, uint8_t siz, const uint8_t* addr, uint32_t sizeBytes,
+                                           const uint8_t* palette0, const uint8_t* palette1, uint8_t paletteIndex) {
+    uint64_t hash = HashBytesFNV1a(addr, sizeBytes);
+
+    if (fmt == G_IM_FMT_CI) {
+        if (siz == G_IM_SIZ_4b) {
+            const uint8_t* palette = nullptr;
+            if (paletteIndex > 7) {
+                palette = palette1;
+            } else {
+                palette = palette0 != nullptr ? palette0 + (paletteIndex % 8) * 16 * 2 : nullptr;
+            }
+            hash ^= HashBytesFNV1a(palette, 16 * 2);
+        } else if (siz == G_IM_SIZ_8b) {
+            hash ^= HashBytesFNV1a(palette0, 2 * 128);
+            hash ^= HashBytesFNV1a(palette1, 2 * 128);
+        }
+    }
+
+    return hash;
+}
+
 const static uint32_t f3dex2AttrHandler[] = {
     F3DEX2_G_MTX_PROJECTION, F3DEX2_G_MTX_LOAD,  F3DEX2_G_MTX_PUSH,  F3DEX_G_MTX_NOPUSH,
     F3DEX2_G_CULL_FRONT,     F3DEX2_G_CULL_BACK, F3DEX2_G_CULL_BOTH,
@@ -462,7 +498,7 @@ std::string Interpreter::GetBaseTexturePath(const std::string& path) {
 
 void Interpreter::TextureCacheDelete(const uint8_t* origAddr) {
     while (mTextureCache.map.bucket_count() > 0) {
-        TextureCacheKey key = { origAddr, { 0 }, 0, 0, 0 }; // bucket index only depends on the address
+        TextureCacheKey key = { origAddr, { 0 }, 0, 0, 0, 0, 0 }; // bucket index only depends on the address
         size_t bucket = mTextureCache.map.bucket(key);
         bool again = false;
         for (auto it = mTextureCache.map.begin(bucket); it != mTextureCache.map.end(bucket); ++it) {
@@ -779,23 +815,32 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     else
         palette = mRdp->palettes[palIdx / 8] + (palIdx % 8) * 16 * 2;
 
-    SUPPORT_CHECK(fullImageLineSizeBytes == lineSizeBytes);
+    // CI4 source rows should follow the loaded image stride, not the padded
+    // TMEM tile stride. Font glyphs in HM64 are tightly packed at 7 bytes per
+    // row even though the tile state rounds to 8.
+    const uint32_t sourceStrideBytes = fullImageLineSizeBytes != 0 ? fullImageLineSizeBytes : lineSizeBytes;
 
-    for (uint32_t i = 0; i < sizeBytes * 2; i++) {
-        uint8_t byte = addr[i / 2];
-        uint8_t idx = (byte >> (4 - (i % 2) * 4)) & 0xf;
-        uint16_t col16 = (palette[idx * 2] << 8) | palette[idx * 2 + 1]; // Big endian load
-        uint8_t a = col16 & 1;
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-        mTexUploadBuffer[4 * i + 0] = SCALE_5_8(r);
-        mTexUploadBuffer[4 * i + 1] = SCALE_5_8(g);
-        mTexUploadBuffer[4 * i + 2] = SCALE_5_8(b);
-        mTexUploadBuffer[4 * i + 3] = a ? 255 : 0;
+    for (uint32_t i = 0, j = 0; i < sizeBytes; j += sourceStrideBytes - lineSizeBytes) {
+        for (uint32_t k = 0; k < lineSizeBytes; i++, k++, j++) {
+            uint8_t byte = addr[j];
+
+            for (uint32_t nibble = 0; nibble < 2; nibble++) {
+                uint8_t idx = (byte >> (4 - nibble * 4)) & 0xf;
+                uint16_t col16 = (palette[idx * 2] << 8) | palette[idx * 2 + 1]; // Big endian load
+                uint8_t a = col16 & 1;
+                uint8_t r = col16 >> 11;
+                uint8_t g = (col16 >> 6) & 0x1f;
+                uint8_t b = (col16 >> 1) & 0x1f;
+                uint32_t out = (i * 2 + nibble) * 4;
+                mTexUploadBuffer[out + 0] = SCALE_5_8(r);
+                mTexUploadBuffer[out + 1] = SCALE_5_8(g);
+                mTexUploadBuffer[out + 2] = SCALE_5_8(b);
+                mTexUploadBuffer[out + 3] = a ? 255 : 0;
+            }
+        }
     }
 
-    uint32_t resultLineSizeBytes = mRdp->texture_tile[tile].line_size_bytes;
+    uint32_t resultLineSizeBytes = lineSizeBytes;
     if (metadata->h_byte_scale != 1) {
         resultLineSizeBytes *= metadata->h_byte_scale;
     }
@@ -839,7 +884,7 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
         }
     }
 
-    uint32_t resultLineSizeBytes = mRdp->texture_tile[tile].line_size_bytes;
+    uint32_t resultLineSizeBytes = lineSizeBytes;
     if (metadata->h_byte_scale != 1) {
         resultLineSizeBytes *= metadata->h_byte_scale;
     }
@@ -966,11 +1011,18 @@ void Interpreter::ImportTexture(int i, int tile, bool importReplacement) {
         return;
     }
 
+    const uint64_t contentHash =
+        metadata->resource == nullptr
+            ? HashMutableTextureContents(fmt, siz, origAddr, origSizeBytes, mRdp->palettes[0], mRdp->palettes[1],
+                                         paletteIndex)
+            : 0;
+
     TextureCacheKey key;
     if (fmt == G_IM_FMT_CI) {
-        key = { origAddr, { mRdp->palettes[0], mRdp->palettes[1] }, fmt, siz, paletteIndex, origSizeBytes };
+        key = { origAddr, { mRdp->palettes[0], mRdp->palettes[1] }, fmt, siz, paletteIndex, origSizeBytes,
+                contentHash };
     } else {
-        key = { origAddr, {}, fmt, siz, paletteIndex, origSizeBytes };
+        key = { origAddr, {}, fmt, siz, paletteIndex, origSizeBytes, contentHash };
     }
 
     if (TextureCacheLookup(i, key)) {
@@ -1058,7 +1110,7 @@ void Interpreter::ImportTextureMask(int i, int tile) {
         return;
     }
 
-    TextureCacheKey key = { orig_addr, {}, 0, 0, 0, 0 };
+    TextureCacheKey key = { orig_addr, {}, 0, 0, 0, 0, 0 };
 
     if (TextureCacheLookup(i, key)) {
         return;
@@ -1602,28 +1654,34 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
             uint8_t cmt = mRdp->texture_tile[tile].cmt;
 
             uint32_t tex_size_bytes = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].orig_size_bytes;
-            uint32_t line_size = mRdp->texture_tile[tile].line_size_bytes;
+            uint32_t line_size_bytes = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].line_size_bytes;
 
-            if (line_size == 0) {
-                line_size = 1;
+            if (line_size_bytes == 0) {
+                line_size_bytes = 1;
             }
 
-            tex_height[i] = tex_size_bytes / line_size;
+            // Moonwright [Port] Sample against the actual uploaded texture dimensions,
+            // not the padded TMEM tile stride. Odd-width CI4 UI/font textures can be
+            // tightly packed (for example 14x14 glyphs at 7 bytes per row) even when
+            // the tile state rounds to an 8-byte line.
+            tex_height[i] = tex_size_bytes / line_size_bytes;
             switch (mRdp->texture_tile[tile].siz) {
                 case G_IM_SIZ_4b:
-                    line_size <<= 1;
+                    tex_width[i] = line_size_bytes * 2;
                     break;
                 case G_IM_SIZ_8b:
+                    tex_width[i] = line_size_bytes;
                     break;
                 case G_IM_SIZ_16b:
-                    line_size /= G_IM_SIZ_16b_LINE_BYTES;
+                    tex_width[i] = line_size_bytes / G_IM_SIZ_16b_LINE_BYTES;
                     break;
                 case G_IM_SIZ_32b:
-                    line_size /= G_IM_SIZ_32b_LINE_BYTES; // this is 2!
-                    tex_height[i] /= 2;
+                    tex_width[i] = line_size_bytes / 4;
+                    break;
+                default:
+                    tex_width[i] = line_size_bytes;
                     break;
             }
-            tex_width[i] = line_size;
 
             tex_width2[i] = (mRdp->texture_tile[tile].lrs - mRdp->texture_tile[tile].uls + 4) / 4;
             tex_height2[i] = (mRdp->texture_tile[tile].lrt - mRdp->texture_tile[tile].ult + 4) / 4;

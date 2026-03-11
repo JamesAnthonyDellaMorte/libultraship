@@ -779,23 +779,41 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     else
         palette = mRdp->palettes[palIdx / 8] + (palIdx % 8) * 16 * 2;
 
-    SUPPORT_CHECK(fullImageLineSizeBytes == lineSizeBytes);
+    // CI4 source rows should follow the loaded image stride, not the padded
+    // TMEM tile stride. Tightly-packed indexed-color textures (e.g. font glyphs)
+    // can have a source stride smaller than the TMEM-aligned tile line size.
+    // When strides match (the common case), sourceStrideBytes == lineSizeBytes
+    // and the skip is zero, producing identical results to a flat loop.
+    const uint32_t sourceStrideBytes = fullImageLineSizeBytes != 0 ? fullImageLineSizeBytes : lineSizeBytes;
 
-    for (uint32_t i = 0; i < sizeBytes * 2; i++) {
-        uint8_t byte = addr[i / 2];
-        uint8_t idx = (byte >> (4 - (i % 2) * 4)) & 0xf;
-        uint16_t col16 = (palette[idx * 2] << 8) | palette[idx * 2 + 1]; // Big endian load
-        uint8_t a = col16 & 1;
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-        mTexUploadBuffer[4 * i + 0] = SCALE_5_8(r);
-        mTexUploadBuffer[4 * i + 1] = SCALE_5_8(g);
-        mTexUploadBuffer[4 * i + 2] = SCALE_5_8(b);
-        mTexUploadBuffer[4 * i + 3] = a ? 255 : 0;
+    for (uint32_t i = 0, j = 0; i < sizeBytes; j += sourceStrideBytes - lineSizeBytes) {
+        for (uint32_t k = 0; k < lineSizeBytes; i++, k++, j++) {
+            uint8_t byte = addr[j];
+
+            for (uint32_t nibble = 0; nibble < 2; nibble++) {
+                uint8_t idx = (byte >> (4 - nibble * 4)) & 0xf;
+                uint16_t col16 = (palette[idx * 2] << 8) | palette[idx * 2 + 1]; // Big endian load
+                uint8_t a = col16 & 1;
+                uint8_t r = col16 >> 11;
+                uint8_t g = (col16 >> 6) & 0x1f;
+                uint8_t b = (col16 >> 1) & 0x1f;
+                uint32_t out = (i * 2 + nibble) * 4;
+                mTexUploadBuffer[out + 0] = SCALE_5_8(r);
+                mTexUploadBuffer[out + 1] = SCALE_5_8(g);
+                mTexUploadBuffer[out + 2] = SCALE_5_8(b);
+                mTexUploadBuffer[out + 3] = a ? 255 : 0;
+            }
+        }
     }
 
-    uint32_t resultLineSizeBytes = mRdp->texture_tile[tile].line_size_bytes;
+    // The stride-aware loop packs output rows at lineSizeBytes width.
+    // For LoadTile textures (multi-row), use lineSizeBytes so the upload
+    // dimensions match the packed output. For LoadBlock textures where
+    // line_size_bytes equals the total size, fall back to the tile
+    // descriptor for correct 2D dimensions (upstream behavior).
+    uint32_t resultLineSizeBytes = (lineSizeBytes < sizeBytes)
+        ? lineSizeBytes
+        : mRdp->texture_tile[tile].line_size_bytes;
     if (metadata->h_byte_scale != 1) {
         resultLineSizeBytes *= metadata->h_byte_scale;
     }
@@ -839,7 +857,11 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
         }
     }
 
-    uint32_t resultLineSizeBytes = mRdp->texture_tile[tile].line_size_bytes;
+    // Same conditional as CI4: use loaded_texture line size for LoadTile
+    // (matches the stride-aware loop output), tile descriptor for LoadBlock.
+    uint32_t resultLineSizeBytes = (lineSizeBytes < sizeBytes)
+        ? lineSizeBytes
+        : mRdp->texture_tile[tile].line_size_bytes;
     if (metadata->h_byte_scale != 1) {
         resultLineSizeBytes *= metadata->h_byte_scale;
     }
@@ -1602,7 +1624,15 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
             uint8_t cmt = mRdp->texture_tile[tile].cmt;
 
             uint32_t tex_size_bytes = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].orig_size_bytes;
-            uint32_t line_size = mRdp->texture_tile[tile].line_size_bytes;
+            uint32_t loaded_line_size = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].line_size_bytes;
+
+            // Use loaded_texture line size for LoadTile textures (matches
+            // ImportTexture upload dimensions). Fall back to the tile
+            // descriptor for LoadBlock where loaded line_size_bytes equals
+            // the total size (upstream behavior).
+            uint32_t line_size = (loaded_line_size > 0 && loaded_line_size < tex_size_bytes)
+                ? loaded_line_size
+                : mRdp->texture_tile[tile].line_size_bytes;
 
             if (line_size == 0) {
                 line_size = 1;

@@ -133,7 +133,7 @@ class BitConverter {
                              ((uint64_t)data[offset + 4] << 24) + ((uint64_t)data[offset + 5] << 16) +
                              ((uint64_t)data[offset + 6] << 8) + ((uint64_t)data[offset + 7]);
         static_assert(sizeof(uint64_t) == sizeof(double), "expected 64-bit double");
-        // Checks if the float format on the platform the ZAPD binary is running on supports the
+        // Checks if the float format on the platform the asset tool binary is running on supports the
         // same float format as the object file.
         static_assert(std::numeric_limits<float>::is_iec559, "expected IEC559 floats on host machine");
         std::memcpy(&value, &floatData, sizeof(value));
@@ -147,7 +147,7 @@ class BitConverter {
                              ((uint64_t)data[offset + 4] << 24) + ((uint64_t)data[offset + 5] << 16) +
                              ((uint64_t)data[offset + 6] << 8) + ((uint64_t)data[offset + 7]);
         static_assert(sizeof(uint64_t) == sizeof(double), "expected 64-bit double");
-        // Checks if the float format on the platform the ZAPD binary is running on supports the
+        // Checks if the float format on the platform the asset tool binary is running on supports the
         // same float format as the object file.
         static_assert(std::numeric_limits<double>::is_iec559, "expected IEC559 doubles on host machine");
         std::memcpy(&value, &floatData, sizeof(value));

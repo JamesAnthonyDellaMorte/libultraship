@@ -1660,7 +1660,7 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
                 line_size_bytes = 1;
             }
 
-            // Moonwright [Port] Sample against the actual uploaded texture dimensions,
+            // BlueFeather [Port] Sample against the actual uploaded texture dimensions,
             // not the padded TMEM tile stride. Odd-width CI4 UI/font textures can be
             // tightly packed (for example 14x14 glyphs at 7 bytes per row) even when
             // the tile state rounds to an 8-byte line.

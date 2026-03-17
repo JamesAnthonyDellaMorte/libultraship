@@ -134,6 +134,7 @@ class Gui {
 
   private:
     GuiWindowInitData mImpl;
+    bool mIsInitialized = false;
     bool mNeedsConsoleVariableSave;
     std::string mImGuiIniPath;
     std::string mImGuiLogPath;

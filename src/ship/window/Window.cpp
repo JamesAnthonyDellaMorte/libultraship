@@ -55,6 +55,11 @@ std::shared_ptr<Gui> Window::GetGui() {
 
 void Window::SaveWindowToConfig() {
     // This accepts conf in because it can be run in the destruction of LUS.
+    if (mConfig == nullptr) {
+        SPDLOG_DEBUG("Skipping window config save because config is unavailable");
+        return;
+    }
+
     mConfig->SetBool("Window.Fullscreen.Enabled", IsFullscreen());
     if (IsFullscreen()) {
         mConfig->SetInt("Window.Fullscreen.Width", (int32_t)GetWidth());

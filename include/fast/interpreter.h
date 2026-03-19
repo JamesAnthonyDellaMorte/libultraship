@@ -301,6 +301,16 @@ struct RDP {
     bool viewport_or_scissor_changed;
     void* z_buf_address;
     void* color_image_address;
+
+    struct {
+        uint8_t cr, cg, cb;  // center (key color)
+        uint8_t sr, sg, sb;  // scale
+        uint16_t wr, wg, wb; // width (12-bit)
+    } color_key;
+
+    struct {
+        int16_t k0, k1, k2, k3, k4, k5; // 9-bit signed YUV-to-RGB coefficients
+    } convert;
 };
 
 typedef enum Attribute {
@@ -438,6 +448,9 @@ class Interpreter {
     void GfxDpSetFogColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
     void GfxDpSetBlendColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
     void GfxDpSetFillColor(uint32_t pickedColor);
+    void GfxDpSetKeyR(uint8_t cR, uint8_t sR, uint16_t wR);
+    void GfxDpSetKeyGB(uint8_t cG, uint8_t sG, uint16_t wG, uint8_t cB, uint8_t sB, uint16_t wB);
+    void GfxDpSetConvert(int16_t k0, int16_t k1, int16_t k2, int16_t k3, int16_t k4, int16_t k5);
     void GfxDrawRectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry);
     void GfxDpTextureRectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry, uint8_t tile, int16_t uls,
                                int16_t ult, int16_t dsdx, int16_t dtdy, bool flip);

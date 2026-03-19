@@ -2338,6 +2338,30 @@ void Interpreter::GfxDpSetFillColor(uint32_t packed_color) {
     mRdp->fill_color.a = a * 255;
 }
 
+void Interpreter::GfxDpSetKeyR(uint8_t cR, uint8_t sR, uint16_t wR) {
+    mRdp->color_key.cr = cR;
+    mRdp->color_key.sr = sR;
+    mRdp->color_key.wr = wR;
+}
+
+void Interpreter::GfxDpSetKeyGB(uint8_t cG, uint8_t sG, uint16_t wG, uint8_t cB, uint8_t sB, uint16_t wB) {
+    mRdp->color_key.cg = cG;
+    mRdp->color_key.sg = sG;
+    mRdp->color_key.wg = wG;
+    mRdp->color_key.cb = cB;
+    mRdp->color_key.sb = sB;
+    mRdp->color_key.wb = wB;
+}
+
+void Interpreter::GfxDpSetConvert(int16_t k0, int16_t k1, int16_t k2, int16_t k3, int16_t k4, int16_t k5) {
+    mRdp->convert.k0 = k0;
+    mRdp->convert.k1 = k1;
+    mRdp->convert.k2 = k2;
+    mRdp->convert.k3 = k3;
+    mRdp->convert.k4 = k4;
+    mRdp->convert.k5 = k5;
+}
+
 void Interpreter::GfxDrawRectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry) {
     uint32_t saved_other_mode_h = mRdp->other_mode_h;
     uint32_t cycle_type = (mRdp->other_mode_h & (3U << G_MDSFT_CYCLETYPE));
@@ -3282,6 +3306,54 @@ bool gfx_set_prim_depth_handler_rdp(F3DGfx** cmd) {
     return false;
 }
 
+// Sign-extend a 9-bit value to int16_t
+static int16_t sign_extend_9(uint32_t val) {
+    if (val & 0x100) {
+        return (int16_t)(val | 0xFE00);
+    }
+    return (int16_t)val;
+}
+
+bool gfx_set_key_r_handler_rdp(F3DGfx** cmd0) {
+    Interpreter* gfx = mInstance.lock().get();
+    F3DGfx* cmd = *cmd0;
+
+    uint16_t wR = C1(16, 12);
+    uint8_t cR = C1(8, 8);
+    uint8_t sR = C1(0, 8);
+    gfx->GfxDpSetKeyR(cR, sR, wR);
+    return false;
+}
+
+bool gfx_set_key_gb_handler_rdp(F3DGfx** cmd0) {
+    Interpreter* gfx = mInstance.lock().get();
+    F3DGfx* cmd = *cmd0;
+
+    uint16_t wG = C0(12, 12);
+    uint16_t wB = C0(0, 12);
+    uint8_t cG = C1(24, 8);
+    uint8_t sG = C1(16, 8);
+    uint8_t cB = C1(8, 8);
+    uint8_t sB = C1(0, 8);
+    gfx->GfxDpSetKeyGB(cG, sG, wG, cB, sB, wB);
+    return false;
+}
+
+bool gfx_set_convert_handler_rdp(F3DGfx** cmd0) {
+    Interpreter* gfx = mInstance.lock().get();
+    F3DGfx* cmd = *cmd0;
+
+    int16_t k0 = sign_extend_9(C0(13, 9));
+    int16_t k1 = sign_extend_9(C0(4, 9));
+    // k2 is split across both words: upper 4 bits in w0[3:0], lower 5 bits in w1[31:27]
+    int16_t k2 = sign_extend_9((C0(0, 4) << 5) | C1(27, 5));
+    int16_t k3 = sign_extend_9(C1(18, 9));
+    int16_t k4 = sign_extend_9(C1(9, 9));
+    int16_t k5 = sign_extend_9(C1(0, 9));
+    gfx->GfxDpSetConvert(k0, k1, k2, k3, k4, k5);
+    return false;
+}
+
 // Only on F3DEX2
 bool gfx_geometry_mode_handler_f3dex2(F3DGfx** cmd0) {
     Interpreter* gfx = mInstance.lock().get();
@@ -4019,6 +4091,9 @@ static constexpr UcodeHandler rdpHandlers = {
     { RDP_G_RDPPIPESYNC, { "mRdpPIPESYNC", gfx_stubbed_command_handler } },          // mRdpPIPESYNC (-25)
     { RDP_G_RDPTILESYNC, { "mRdpTILESYNC", gfx_stubbed_command_handler } },          // mRdpPIPESYNC (-24)
     { RDP_G_RDPFULLSYNC, { "mRdpFULLSYNC", gfx_stubbed_command_handler } },          // mRdpFULLSYNC (-23)
+    { RDP_G_SETKEYGB, { "G_SETKEYGB", gfx_set_key_gb_handler_rdp } },               // G_SETKEYGB (-22)
+    { RDP_G_SETKEYR, { "G_SETKEYR", gfx_set_key_r_handler_rdp } },                  // G_SETKEYR (-21)
+    { RDP_G_SETCONVERT, { "G_SETCONVERT", gfx_set_convert_handler_rdp } },           // G_SETCONVERT (-20)
     { RDP_G_SETSCISSOR, { "G_SETSCISSOR", gfx_SetScissor_handler_rdp } },            // G_SETSCISSOR (-19)
     { RDP_G_SETPRIMDEPTH, { "G_SETPRIMDEPTH", gfx_set_prim_depth_handler_rdp } },    // G_SETPRIMDEPTH (-18)
     { RDP_G_RDPSETOTHERMODE, { "mRdpSETOTHERMODE", gfx_rdp_set_other_mode_rdp } },   // mRdpSETOTHERMODE (-17)

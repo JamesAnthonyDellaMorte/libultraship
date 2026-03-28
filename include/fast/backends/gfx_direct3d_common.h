@@ -154,17 +154,17 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     std::map<std::pair<uint64_t, uint32_t>, struct ShaderProgramD3D11> mShaderProgramPool;
 
     std::vector<struct TextureData> mTextures;
-    int mCurrentTile;
-    uint32_t mCurrentTextureIds[SHADER_MAX_TEXTURES];
+    int mCurrentTile = 0;
+    uint32_t mCurrentTextureIds[SHADER_MAX_TEXTURES] = {};
 
     std::vector<FramebufferDX11> mFrameBuffers;
 
     // Current state
 
-    struct ShaderProgramD3D11* mShaderProgram;
+    struct ShaderProgramD3D11* mShaderProgram = nullptr;
 
-    int32_t mRenderTargetHeight;
-    int mCurrentFramebuffer;
+    int32_t mRenderTargetHeight = 0;
+    int mCurrentFramebuffer = 0;
     FilteringMode mCurrentFilterMode = FILTER_NONE;
 
     // Previous states (to prevent setting states needlessly)
